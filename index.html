@@ -3,6 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Lettore CF">
+  <link rel="manifest" href="manifest.json">
   <title>Lettore Codice Fiscale → Età</title>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:16px;line-height:1.4}
@@ -19,7 +23,7 @@
 <body>
   <h1>Lettore Codice Fiscale → Età</h1>
   <div id="out" class="out">Inquadra il barcode della tessera sanitaria o inserisci il CF manualmente.</div>
-  <p><small>Tutto in locale: nessun dato inviato. Su iPhone apri questa pagina dalla schermata Home per usare la fotocamera.</small></p>
+  <p><small>Tutto in locale: nessun dato inviato. Se sei su iPhone, apri questa app dalla schermata Home per la fotocamera.</small></p>
 
   <div class="row">
     <button id="btnStart">Avvia fotocamera</button>
@@ -36,73 +40,59 @@
     <button id="btnParse">Calcola età</button>
   </div>
 
-  <!-- Libreria ZXing locale -->
   <script src="./zxing.min.js"></script>
   <script>
-    const video    = document.getElementById('preview');
-    const out      = document.getElementById('out');
-    const btnStart = document.getElementById('btnStart');
-    const btnStop  = document.getElementById('btnStop');
-    const manual   = document.getElementById('manual');
-    const btnParse = document.getElementById('btnParse');
+    const video=document.getElementById('preview');
+    const out=document.getElementById('out');
+    const btnStart=document.getElementById('btnStart');
+    const btnStop=document.getElementById('btnStop');
+    const manual=document.getElementById('manual');
+    const btnParse=document.getElementById('btnParse');
 
-    let codeReader = null;
-    let currentStream = null;
-    let scanning = false;
+    let codeReader=null,currentStream=null,scanning=false;
 
-    function show(msg, cls=""){ out.innerHTML = `<div class="${cls}">${msg}</div>`; window.scrollTo({ top: 0, behavior: "smooth" }); }
+    function show(msg,cls=""){out.innerHTML=`<div class="${cls}">${msg}</div>`;window.scrollTo({top:0,behavior:"smooth"});}
 
     function parseCF(cfRaw){
-      const cf = (cfRaw || "").trim().toUpperCase();
+      const cf=(cfRaw||"").trim().toUpperCase();
       if(!/^[A-Z0-9]{16}$/.test(cf)) throw new Error("CF non valido: 16 caratteri alfanumerici.");
-      const YY = cf.slice(6,8), M = cf[8], DD0 = parseInt(cf.slice(9,11));
-      const months = {A:1,B:2,C:3,D:4,E:5,H:6,L:7,M:8,P:9,R:10,S:11,T:12};
-      const month = months[M]; if(!month) throw new Error("Mese CF non valido.");
-      let DD=DD0, female=false; if(DD>=41){female=true;DD-=40;}
-      const now=new Date(), yy=parseInt(YY), year=(yy<=now.getFullYear()%100)?2000+yy:1900+yy;
-      const birth=new Date(year,month-1,DD); if(isNaN(birth)) throw new Error("Data di nascita non valida.");
+      const YY=cf.slice(6,8),M=cf[8],DD0=parseInt(cf.slice(9,11));
+      const months={A:1,B:2,C:3,D:4,E:5,H:6,L:7,M:8,P:9,R:10,S:11,T:12};
+      const month=months[M];if(!month) throw new Error("Mese CF non valido.");
+      let DD=DD0,female=false;if(DD>=41){female=true;DD-=40;}
+      const now=new Date(),yy=parseInt(YY),year=(yy<=now.getFullYear()%100)?2000+yy:1900+yy;
+      const birth=new Date(year,month-1,DD);if(isNaN(birth)) throw new Error("Data di nascita non valida.");
       let age=now.getFullYear()-birth.getFullYear();
       const md=now.getMonth()-birth.getMonth();
       if(md<0||(md===0&&now.getDate()<birth.getDate())) age--;
-      return {cf,birthISO:birth.toISOString().slice(0,10),age,gender:female?"F":"M"};
+      return{cf,birthISO:birth.toISOString().slice(0,10),age,gender:female?"F":"M"};
     }
 
     async function startScan(){
       try{
         if(scanning) return;
         scanning=true;
-
         if(!navigator.mediaDevices?.getUserMedia){
-          show("Fotocamera non supportata. Su iPhone apri dalla schermata Home.", "err");
+          show("Fotocamera non supportata. Apri l’app dalla Home su iPhone.","err");
           scanning=false;return;
         }
-
-        codeReader = new ZXing.BrowserMultiFormatReader();
+        codeReader=new ZXing.BrowserMultiFormatReader();
         const constraints={video:{facingMode:{ideal:"environment"}},audio:false};
-        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject=currentStream; await video.play();
-
+        currentStream=await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject=currentStream;await video.play();
         show("Inquadra il codice a barre della tessera…");
-
         const formats=[ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.QR_CODE];
-        codeReader.hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-
-        const loop=async()=>{
-          if(!scanning) return;
+        codeReader.hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,formats);
+        const loop=async()=>{if(!scanning)return;
           try{
             const result=await codeReader.decodeOnceFromVideoElement(video);
             if(result?.text) handleCandidate(result.text.trim());
-          }catch(e){
-            if(!(e instanceof ZXing.NotFoundException)) console.error(e);
-          }finally{
-            if(scanning) setTimeout(loop,200);
-          }
+          }catch(e){if(!(e instanceof ZXing.NotFoundException)) console.error(e);}
+          finally{if(scanning)setTimeout(loop,200);}
         };
         loop();
-
-      }catch(err){
-        console.error(err);
-        show("Errore accesso fotocamera: consenti l’uso in Safari o apri dalla Home.", "err");
+      }catch(err){console.error(err);
+        show("Errore accesso fotocamera: consenti l’uso in Safari o apri dalla Home.","err");
         scanning=false;
       }
     }
@@ -123,13 +113,10 @@
           `CF: <b>${info.cf}</b><br>`+
           `Data di nascita: <b>${info.birthISO}</b><br>`+
           `Sesso: <b>${info.gender}</b><br>`+
-          `Età oggi: <b>${info.age}</b> anni`,
-          "ok"
+          `Età oggi: <b>${info.age}</b> anni`,"ok"
         );
         stopScan();
-      }catch(e){
-        show("Letto: "+text+"<br>"+e.message, "err");
-      }
+      }catch(e){show("Letto: "+text+"<br>"+e.message,"err");}
     }
 
     btnStart.onclick=startScan;
@@ -141,8 +128,7 @@
           `CF: <b>${info.cf}</b><br>`+
           `Data di nascita: <b>${info.birthISO}</b><br>`+
           `Sesso: <b>${info.gender}</b><br>`+
-          `Età oggi: <b>${info.age}</b> anni`,
-          "ok"
+          `Età oggi: <b>${info.age}</b> anni`,"ok"
         );
       }catch(e){show(e.message,"err");}
     };
