@@ -40,28 +40,34 @@
     <button id="btnParse">Calcola età</button>
   </div>
 
-  <script src="./zxing.min.js"></script>
-  <script>
-    const video=document.getElementById('preview');
-    const out=document.getElementById('out');
-    const btnStart=document.getElementById('btnStart');
-    const btnStop=document.getElementById('btnStop');
-    const manual=document.getElementById('manual');
-    const btnParse=document.getElementById('btnParse');
+  <!-- Libreria ZXing -->
+  <script type="module">
+    import { BrowserMultiFormatReader, BarcodeFormat, DecodeHintType } from "https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/esm/index.min.js";
 
-    let codeReader=null,currentStream=null,scanning=false;
+    const video = document.getElementById('preview');
+    const out = document.getElementById('out');
+    const btnStart = document.getElementById('btnStart');
+    const btnStop = document.getElementById('btnStop');
+    const manual = document.getElementById('manual');
+    const btnParse = document.getElementById('btnParse');
 
-    function show(msg,cls=""){out.innerHTML=`<div class="${cls}">${msg}</div>`;window.scrollTo({top:0,behavior:"smooth"});}
+    let codeReader = null;
+    let scanning = false;
+
+    function show(msg, cls=""){ 
+      out.innerHTML = `<div class="${cls}">${msg}</div>`; 
+      window.scrollTo({top:0,behavior:"smooth"});
+    }
 
     function parseCF(cfRaw){
       const cf=(cfRaw||"").trim().toUpperCase();
-      if(!/^[A-Z0-9]{16}$/.test(cf)) throw new Error("CF non valido: 16 caratteri alfanumerici.");
+      if(!/^[A-Z0-9]{16}$/.test(cf)) throw new Error("CF non valido.");
       const YY=cf.slice(6,8),M=cf[8],DD0=parseInt(cf.slice(9,11));
       const months={A:1,B:2,C:3,D:4,E:5,H:6,L:7,M:8,P:9,R:10,S:11,T:12};
-      const month=months[M];if(!month) throw new Error("Mese CF non valido.");
+      const month=months[M];if(!month)throw new Error("Mese CF non valido.");
       let DD=DD0,female=false;if(DD>=41){female=true;DD-=40;}
       const now=new Date(),yy=parseInt(YY),year=(yy<=now.getFullYear()%100)?2000+yy:1900+yy;
-      const birth=new Date(year,month-1,DD);if(isNaN(birth)) throw new Error("Data di nascita non valida.");
+      const birth=new Date(year,month-1,DD);
       let age=now.getFullYear()-birth.getFullYear();
       const md=now.getMonth()-birth.getMonth();
       if(md<0||(md===0&&now.getDate()<birth.getDate())) age--;
@@ -69,45 +75,46 @@
     }
 
     async function startScan(){
-      try{
-        if(scanning) return;
-        scanning=true;
+      try {
+        if (scanning) return;
+        scanning = true;
 
-        // 🔹 Richiesta esplicita del permesso fotocamera
-        const permission = await navigator.mediaDevices.getUserMedia({ video: true });
-        if(!permission) throw new Error("Permesso negato o fotocamera non disponibile.");
+        const constraints = { video: { facingMode: { ideal: "environment" } } };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        await video.play();
 
-        codeReader=new ZXing.BrowserMultiFormatReader();
-        const constraints={video:{facingMode:{ideal:"environment"}},audio:false};
-        currentStream=await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject=currentStream;await video.play();
+        show("📸 Fotocamera attiva. Inquadra il codice a barre…");
 
-        show("Inquadra il codice a barre della tessera sanitaria…");
+        codeReader = new BrowserMultiFormatReader();
 
-        const formats=[ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.QR_CODE];
-        codeReader.hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,formats);
+        const hints = new Map();
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_39, BarcodeFormat.CODE_128]);
+        codeReader.defaultHints = hints;
 
         // Lettura continua
-        const loop=async()=>{
-          if(!scanning)return;
-          try{
-            const result=await codeReader.decodeFromVideoElement(video);
-            if(result?.text) handleCandidate(result.text.trim());
-          }catch(e){}
-          requestAnimationFrame(loop);
-        };
-        loop();
-      }catch(err){
+        codeReader.decodeFromVideoDevice(undefined, video, (result, err) => {
+          if (result) {
+            handleCandidate(result.getText());
+          } else if (err && !(err instanceof NotFoundException)) {
+            console.warn(err);
+          }
+        });
+
+      } catch (err) {
         console.error(err);
         show("Errore accesso fotocamera: consenti l’uso in Safari o apri dalla Home.","err");
-        scanning=false;
+        scanning = false;
       }
     }
 
     function stopScan(){
-      scanning=false;
+      scanning = false;
       if(codeReader){try{codeReader.reset();}catch{}}
-      if(currentStream){for(const t of currentStream.getTracks())t.stop();currentStream=null;}
+      if(video.srcObject){
+        video.srcObject.getTracks().forEach(t=>t.stop());
+        video.srcObject=null;
+      }
       show("Scanner fermo. Puoi riavviare o inserire il CF manualmente.");
     }
 
@@ -123,7 +130,9 @@
           `Età oggi: <b>${info.age}</b> anni`,"ok"
         );
         stopScan();
-      }catch(e){show("Letto: "+text+"<br>"+e.message,"err");}
+      }catch(e){
+        show("Letto: "+text+"<br>"+e.message,"err");
+      }
     }
 
     btnStart.onclick=startScan;
