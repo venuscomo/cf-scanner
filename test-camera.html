@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Test Fotocamera iPhone</title>
+  <style>
+    body{font-family:system-ui,-apple-system;margin:16px;line-height:1.4}
+    video{width:100%;max-width:480px;border:1px solid #ccc;border-radius:8px;background:#000}
+    #log{white-space:pre-wrap;background:#fafafa;padding:10px;border-radius:8px;border:1px solid #ddd}
+  </style>
+</head>
+<body>
+  <h1>Test Fotocamera</h1>
+  <p>Serve per capire se iOS consente l’uso della fotocamera in questa modalità.</p>
+  <button id="btnStart">Avvia test</button>
+  <div><video id="preview" playsinline muted></video></div>
+  <h3>Log</h3>
+  <div id="log">Premi "Avvia test"…</div>
+
+  <script>
+    const video=document.getElementById('preview');
+    const log=document.getElementById('log');
+    const btn=document.getElementById('btnStart');
+
+    function add(msg){log.textContent+="\n"+msg;console.log(msg);}
+    btn.onclick=async()=>{
+      add("Richiesta permesso fotocamera…");
+      try{
+        const stream=await navigator.mediaDevices.getUserMedia({video:true});
+        add("✅ Permesso concesso. Stream ricevuto.");
+        video.srcObject=stream;
+        await video.play();
+        add("🎥 Video attivo (se vedi te stesso o qualcosa, la camera funziona).");
+      }catch(e){
+        add("❌ ERRORE: "+e.name+" - "+e.message);
+      }
+    };
+  </script>
+</body>
+</html>
