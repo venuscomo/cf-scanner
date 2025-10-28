@@ -8,10 +8,13 @@
   <meta name="apple-mobile-web-app-title" content="Lettore CF">
   <link rel="manifest" href="manifest.json">
   <title>Lettore Codice Fiscale → Età</title>
+  <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:16px;line-height:1.4}
     h1{font-size:20px;margin:0 0 12px}
-    video{width:100%;max-width:480px;border:1px solid #ccc;border-radius:8px;background:#000}
+    #videoContainer{position:relative;width:100%;max-width:480px;margin:auto}
+    video{width:100%;border:1px solid #ccc;border-radius:8px;background:#000}
+    canvas.drawingBuffer{position:absolute;top:0;left:0;width:100%;height:100%}
     .row{margin:12px 0}
     .out{padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;min-height:48px}
     button,input{font-size:16px;padding:10px;border-radius:8px;border:1px solid #ccc}
@@ -30,8 +33,9 @@
     <button id="btnStop">Stop</button>
   </div>
 
-  <div class="row">
-    <video id="preview" muted playsinline></video>
+  <div id="videoContainer">
+    <video id="preview" autoplay muted playsinline></video>
+    <canvas class="drawingBuffer"></canvas>
   </div>
 
   <div class="row">
@@ -40,19 +44,12 @@
     <button id="btnParse">Calcola età</button>
   </div>
 
-  <!-- Libreria ZXing -->
-  <script type="module">
-    import { BrowserMultiFormatReader, BarcodeFormat, DecodeHintType } from "https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/esm/index.min.js";
-
-    const video = document.getElementById('preview');
+  <script>
     const out = document.getElementById('out');
     const btnStart = document.getElementById('btnStart');
     const btnStop = document.getElementById('btnStop');
     const manual = document.getElementById('manual');
     const btnParse = document.getElementById('btnParse');
-
-    let codeReader = null;
-    let scanning = false;
 
     function show(msg, cls=""){ 
       out.innerHTML = `<div class="${cls}">${msg}</div>`; 
@@ -74,49 +71,41 @@
       return{cf,birthISO:birth.toISOString().slice(0,10),age,gender:female?"F":"M"};
     }
 
-    async function startScan(){
-      try {
-        if (scanning) return;
-        scanning = true;
-
-        const constraints = { video: { facingMode: { ideal: "environment" } } };
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = stream;
-        await video.play();
-
-        show("📸 Fotocamera attiva. Inquadra il codice a barre…");
-
-        codeReader = new BrowserMultiFormatReader();
-
-        const hints = new Map();
-        hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_39, BarcodeFormat.CODE_128]);
-        codeReader.defaultHints = hints;
-
-        // Lettura continua
-        codeReader.decodeFromVideoDevice(undefined, video, (result, err) => {
-          if (result) {
-            handleCandidate(result.getText());
-          } else if (err && !(err instanceof NotFoundException)) {
-            console.warn(err);
+    btnStart.onclick = () => {
+      show("📸 Avvio fotocamera...");
+      Quagga.init({
+        inputStream: {
+          name: "Live",
+          type: "LiveStream",
+          target: document.querySelector('#videoContainer'),
+          constraints: {
+            facingMode: "environment"
           }
-        });
+        },
+        decoder: {
+          readers: ["code_39_reader", "code_128_reader"]
+        },
+        locate: true
+      }, function(err) {
+        if (err) {
+          console.error(err);
+          show("Errore fotocamera: " + err.message, "err");
+          return;
+        }
+        Quagga.start();
+        show("Inquadra il codice a barre della tessera...");
+      });
 
-      } catch (err) {
-        console.error(err);
-        show("Errore accesso fotocamera: consenti l’uso in Safari o apri dalla Home.","err");
-        scanning = false;
-      }
-    }
+      Quagga.onDetected(function(data) {
+        const text = data.codeResult.code;
+        handleCandidate(text);
+      });
+    };
 
-    function stopScan(){
-      scanning = false;
-      if(codeReader){try{codeReader.reset();}catch{}}
-      if(video.srcObject){
-        video.srcObject.getTracks().forEach(t=>t.stop());
-        video.srcObject=null;
-      }
+    btnStop.onclick = () => {
+      Quagga.stop();
       show("Scanner fermo. Puoi riavviare o inserire il CF manualmente.");
-    }
+    };
 
     function handleCandidate(text){
       const m=text.toUpperCase().match(/[A-Z0-9]{16}/);
@@ -129,15 +118,13 @@
           `Sesso: <b>${info.gender}</b><br>`+
           `Età oggi: <b>${info.age}</b> anni`,"ok"
         );
-        stopScan();
+        Quagga.stop();
       }catch(e){
         show("Letto: "+text+"<br>"+e.message,"err");
       }
     }
 
-    btnStart.onclick=startScan;
-    btnStop.onclick=stopScan;
-    btnParse.onclick=()=>{
+    btnParse.onclick = () => {
       try{
         const info=parseCF(manual.value);
         show(
