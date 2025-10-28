@@ -1,124 +1,201 @@
-<script>
-  const out = document.getElementById('out');
-  const btnStart = document.getElementById('btnStart');
-  const btnStop = document.getElementById('btnStop');
-  const manual = document.getElementById('manual');
-  const btnParse = document.getElementById('btnParse');
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lettore Codice Fiscale → Età</title>
 
-  function show(msg, cls = "") {
-    out.innerHTML = `<div class="${cls}">${msg}</div>`;
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
+  <!-- Libreria Quagga per lettura barcode -->
+  <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
 
-  function parseCF(cfRaw) {
-    const cf = (cfRaw || "").trim().toUpperCase();
-    if (!/^[A-Z0-9]{16}$/.test(cf)) throw new Error("CF non valido.");
-    const YY = cf.slice(6, 8), M = cf[8], DD0 = parseInt(cf.slice(9, 11));
-    const months = { A: 1, B: 2, C: 3, D: 4, E: 5, H: 6, L: 7, M: 8, P: 9, R: 10, S: 11, T: 12 };
-    const month = months[M]; if (!month) throw new Error("Mese CF non valido.");
-    let DD = DD0, female = false; if (DD >= 41) { female = true; DD -= 40; }
-    const now = new Date(), yy = parseInt(YY), year = (yy <= now.getFullYear() % 100) ? 2000 + yy : 1900 + yy;
-    const birth = new Date(year, month - 1, DD);
-    let age = now.getFullYear() - birth.getFullYear();
-    const md = now.getMonth() - birth.getMonth();
-    if (md < 0 || (md === 0 && now.getDate() < birth.getDate())) age--;
-    return { cf, birthISO: birth.toISOString().slice(0, 10), age, gender: female ? "F" : "M" };
-  }
-
-  btnStart.onclick = () => {
-    show("📸 Avvio fotocamera...");
-    Quagga.init({
-      inputStream: {
-        type: "LiveStream",
-        target: document.querySelector('#videoContainer'),
-        constraints: {
-          facingMode: "environment",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          aspectRatio: { ideal: 1.7777778 }
-        },
-        area: { // area attiva di scansione (centrale)
-          top: "25%",
-          right: "10%",
-          left: "10%",
-          bottom: "25%"
-        }
-      },
-      locator: {
-        patchSize: "medium",
-        halfSample: true
-      },
-      decoder: {
-        readers: ["code_39_reader", "code_128_reader"]
-      },
-      locate: true,
-      frequency: 10
-    }, function (err) {
-      if (err) {
-        console.error(err);
-        show("Errore fotocamera: " + err.message, "err");
-        return;
-      }
-      Quagga.start();
-      show("Inquadra il codice a barre della tessera...");
-    });
-
-    Quagga.onProcessed(function (result) {
-      const drawingCtx = Quagga.canvas.ctx.overlay;
-      const drawingCanvas = Quagga.canvas.dom.overlay;
-      drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-
-      if (result && result.boxes) {
-        result.boxes.filter(b => b !== result.box)
-          .forEach(b => {
-            Quagga.ImageDebug.drawPath(b, { x: 0, y: 1 }, drawingCtx, { color: "green", lineWidth: 2 });
-          });
-      }
-      if (result && result.box) {
-        Quagga.ImageDebug.drawPath(result.box, { x: 0, y: 1 }, drawingCtx, { color: "#00F", lineWidth: 3 });
-      }
-      if (result && result.codeResult && result.codeResult.code) {
-        Quagga.ImageDebug.drawPath(result.line, { x: 'x', y: 'y' }, drawingCtx, { color: 'red', lineWidth: 2 });
-      }
-    });
-
-    Quagga.onDetected(function (data) {
-      const text = data.codeResult.code;
-      handleCandidate(text);
-    });
-  };
-
-  btnStop.onclick = () => {
-    Quagga.stop();
-    show("Scanner fermo. Puoi riavviare o inserire il CF manualmente.");
-  };
-
-  function handleCandidate(text) {
-    const m = text.toUpperCase().match(/[A-Z0-9]{16}/);
-    const cfCandidate = m ? m[0] : text;
-    try {
-      const info = parseCF(cfCandidate);
-      show(
-        `CF: <b>${info.cf}</b><br>` +
-        `Data di nascita: <b>${info.birthISO}</b><br>` +
-        `Sesso: <b>${info.gender}</b><br>` +
-        `Età oggi: <b>${info.age}</b> anni`, "ok"
-      );
-      Quagga.stop();
-    } catch (e) {
-      show("Letto: " + text + "<br>" + e.message, "err");
+  <style>
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+      margin: 16px;
+      line-height: 1.4;
     }
-  }
+    h1 {
+      font-size: 22px;
+      margin: 0 0 12px;
+    }
+    button, input {
+      font-size: 16px;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      margin: 4px;
+    }
+    .ok { color: #008855; font-weight: 600; }
+    .err { color: #c00; font-weight: 600; }
+    .out {
+      padding: 10px;
+      border-radius: 8px;
+      background: #fafafa;
+      border: 1px solid #ddd;
+      margin-bottom: 12px;
+    }
+    small { color: #666; }
 
-  btnParse.onclick = () => {
-    try {
-      const info = parseCF(manual.value);
-      show(
-        `CF: <b>${info.cf}</b><br>` +
-        `Data di nascita: <b>${info.birthISO}</b><br>` +
-        `Sesso: <b>${info.gender}</b><br>` +
-        `Età oggi: <b>${info.age}</b> anni`, "ok"
-      );
-    } catch (e) { show(e.message, "err"); }
-  };
-</script>
+    #videoContainer {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+      margin: auto;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #000;
+    }
+
+    video {
+      width: 100%;
+      display: block;
+      border-radius: 8px;
+    }
+
+    canvas.drawingBuffer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Lettore Codice Fiscale → Età</h1>
+  <div id="out" class="out">Inquadra il codice a barre della tessera sanitaria o inserisci il CF manualmente.</div>
+
+  <div class="row">
+    <button id="btnStart">📸 Avvia fotocamera</button>
+    <button id="btnStop">⛔ Stop</button>
+  </div>
+
+  <div id="videoContainer">
+    <video id="preview" autoplay muted playsinline></video>
+    <canvas class="drawingBuffer"></canvas>
+  </div>
+
+  <p><small>Tutto in locale: nessun dato inviato. Se sei su iPhone, apri questa app dalla schermata Home per usare la fotocamera.</small></p>
+
+  <div class="row">
+    <label for="manual">Oppure inserisci il Codice Fiscale:</label><br>
+    <input id="manual" maxlength="16" style="width:100%;max-width:480px" placeholder="RSSMRA85T10A562S">
+    <button id="btnParse">Calcola età</button>
+  </div>
+
+  <script>
+    const out = document.getElementById('out');
+    const btnStart = document.getElementById('btnStart');
+    const btnStop = document.getElementById('btnStop');
+    const manual = document.getElementById('manual');
+    const btnParse = document.getElementById('btnParse');
+
+    function show(msg, cls="") {
+      out.innerHTML = `<div class="${cls}">${msg}</div>`;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function parseCF(cfRaw){
+      const cf = (cfRaw || "").trim().toUpperCase();
+      if(!/^[A-Z0-9]{16}$/.test(cf)) throw new Error("CF non valido (16 caratteri).");
+      const YY = cf.slice(6,8), M = cf[8], DD0 = parseInt(cf.slice(9,11),10);
+      const months = {A:1,B:2,C:3,D:4,E:5,H:6,L:7,M:8,P:9,R:10,S:11,T:12};
+      const month = months[M]; if(!month) throw new Error("Mese CF non valido.");
+      let DD = DD0, female = false; if(DD>=41){female=true;DD-=40;}
+      const now=new Date(), yy=parseInt(YY), year=(yy<=now.getFullYear()%100)?2000+yy:1900+yy;
+      const birth=new Date(year,month-1,DD);
+      if(isNaN(birth.getTime())) throw new Error("Data di nascita non valida.");
+      let age=now.getFullYear()-birth.getFullYear();
+      const mDiff=now.getMonth()-birth.getMonth();
+      if(mDiff<0||(mDiff===0&&now.getDate()<birth.getDate())) age--;
+      return {cf,birthISO:birth.toISOString().slice(0,10),age,gender:female?"F":"M"};
+    }
+
+    btnStart.onclick = () => {
+      show("📸 Avvio fotocamera...");
+      Quagga.init({
+        inputStream: {
+          type: "LiveStream",
+          target: document.querySelector('#videoContainer'),
+          constraints: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            aspectRatio: { ideal: 1.777 }
+          },
+          area: { top: "25%", right: "10%", left: "10%", bottom: "25%" }
+        },
+        locator: { patchSize: "medium", halfSample: true },
+        decoder: {
+          readers: ["code_39_reader", "code_128_reader", "ean_reader", "ean_8_reader"]
+        },
+        locate: true,
+        frequency: 10
+      }, (err) => {
+        if(err){
+          console.error(err);
+          show("Errore accesso fotocamera: consenti l’uso in Safari o apri dalla Home.", "err");
+          return;
+        }
+        Quagga.start();
+        show("Inquadra il codice a barre della tessera...");
+      });
+
+      Quagga.onProcessed((result) => {
+        const ctx = Quagga.canvas.ctx.overlay;
+        const canvas = Quagga.canvas.dom.overlay;
+        if(!ctx || !canvas) return;
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        if(result && result.boxes){
+          result.boxes.filter(b=>b!==result.box).forEach(b=>{
+            Quagga.ImageDebug.drawPath(b,{x:0,y:1},ctx,{color:"green",lineWidth:2});
+          });
+        }
+        if(result && result.box){
+          Quagga.ImageDebug.drawPath(result.box,{x:0,y:1},ctx,{color:"#00F",lineWidth:3});
+        }
+      });
+
+      Quagga.onDetected((data) => {
+        const text = data.codeResult.code;
+        handleCandidate(text);
+      });
+    };
+
+    btnStop.onclick = () => {
+      try { Quagga.stop(); } catch {}
+      show("Scanner fermo. Puoi riavviare o inserire il CF manualmente.");
+    };
+
+    function handleCandidate(text){
+      const m = text.toUpperCase().match(/[A-Z0-9]{16}/);
+      const cfCandidate = m ? m[0] : text;
+      try{
+        const info = parseCF(cfCandidate);
+        show(
+          `CF: <b>${info.cf}</b><br>`+
+          `Data di nascita: <b>${info.birthISO}</b><br>`+
+          `Sesso: <b>${info.gender}</b><br>`+
+          `Età oggi: <b>${info.age}</b> anni`,"ok"
+        );
+        Quagga.stop();
+      }catch(e){
+        show("Letto: "+text+"<br>"+e.message,"err");
+      }
+    }
+
+    btnParse.onclick = () => {
+      try{
+        const info = parseCF(manual.value);
+        show(
+          `CF: <b>${info.cf}</b><br>`+
+          `Data di nascita: <b>${info.birthISO}</b><br>`+
+          `Sesso: <b>${info.gender}</b><br>`+
+          `Età oggi: <b>${info.age}</b> anni`,"ok"
+        );
+      }catch(e){ show(e.message,"err"); }
+    };
+  </script>
+</body>
+</html>
