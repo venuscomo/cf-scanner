@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Lettore Codice Fiscale → Età (on-device)</title>
+  <title>Lettore Codice Fiscale → Età</title>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:16px;line-height:1.4}
     h1{font-size:20px;margin:0 0 12px}
@@ -18,7 +18,8 @@
 </head>
 <body>
   <h1>Lettore Codice Fiscale → Età</h1>
-  <p><small>Tutto in locale: nessun dato inviato. Su iPhone apri questa pagina dalla schermata Home per consentire la fotocamera.</small></p>
+  <div id="out" class="out">Inquadra il barcode della tessera sanitaria o inserisci il CF manualmente.</div>
+  <p><small>Tutto in locale: nessun dato inviato. Su iPhone apri questa pagina dalla schermata Home per usare la fotocamera.</small></p>
 
   <div class="row">
     <button id="btnStart">Avvia fotocamera</button>
@@ -35,9 +36,7 @@
     <button id="btnParse">Calcola età</button>
   </div>
 
-  <div id="out" class="out">Inquadra il barcode della tessera sanitaria o inserisci il CF manualmente.</div>
-
-  <!-- Usa la libreria ZXing locale -->
+  <!-- Libreria ZXing locale -->
   <script src="./zxing.min.js"></script>
   <script>
     const video    = document.getElementById('preview');
@@ -51,103 +50,79 @@
     let currentStream = null;
     let scanning = false;
 
-    function show(msg, cls=""){ out.innerHTML = `<div class="${cls}">${msg}</div>`; }
+    function show(msg, cls=""){ out.innerHTML = `<div class="${cls}">${msg}</div>`; window.scrollTo({ top: 0, behavior: "smooth" }); }
 
-    // --- Parsing CF → data di nascita + età ---
     function parseCF(cfRaw){
       const cf = (cfRaw || "").trim().toUpperCase();
-      if(!/^[A-Z0-9]{16}$/.test(cf)) throw new Error("CF non valido: devono essere 16 caratteri alfanumerici.");
-
-      const YY = cf.slice(6, 8);
-      const M  = cf[8];
-      let DD   = parseInt(cf.slice(9, 11), 10);
-
+      if(!/^[A-Z0-9]{16}$/.test(cf)) throw new Error("CF non valido: 16 caratteri alfanumerici.");
+      const YY = cf.slice(6,8), M = cf[8], DD0 = parseInt(cf.slice(9,11));
       const months = {A:1,B:2,C:3,D:4,E:5,H:6,L:7,M:8,P:9,R:10,S:11,T:12};
-      const month = months[M];
-      if(!month) throw new Error("Mese CF non valido.");
-
-      let female = false;
-      if(DD >= 41){ female = true; DD = DD - 40; }
-
-      const now = new Date();
-      const currYY = now.getFullYear() % 100;
-      const yyNum = parseInt(YY, 10);
-      const year = (yyNum <= currYY) ? (2000 + yyNum) : (1900 + yyNum);
-
-      const birth = new Date(year, month - 1, DD);
-      if(isNaN(birth.getTime())) throw new Error("Data di nascita non valida nel CF.");
-
-      let age = now.getFullYear() - birth.getFullYear();
-      const mDiff = now.getMonth() - birth.getMonth();
-      if (mDiff < 0 || (mDiff === 0 && now.getDate() < birth.getDate())) age--;
-
-      return { cf, birthISO: birth.toISOString().slice(0,10), age, gender: female ? "F" : "M" };
+      const month = months[M]; if(!month) throw new Error("Mese CF non valido.");
+      let DD=DD0, female=false; if(DD>=41){female=true;DD-=40;}
+      const now=new Date(), yy=parseInt(YY), year=(yy<=now.getFullYear()%100)?2000+yy:1900+yy;
+      const birth=new Date(year,month-1,DD); if(isNaN(birth)) throw new Error("Data di nascita non valida.");
+      let age=now.getFullYear()-birth.getFullYear();
+      const md=now.getMonth()-birth.getMonth();
+      if(md<0||(md===0&&now.getDate()<birth.getDate())) age--;
+      return {cf,birthISO:birth.toISOString().slice(0,10),age,gender:female?"F":"M"};
     }
 
     async function startScan(){
       try{
         if(scanning) return;
-        scanning = true;
+        scanning=true;
 
-        if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-          show("Fotocamera non supportata. Su iPhone apri dalla schermata Home (non in Safari normale).", "err");
-          scanning = false;
-          return;
+        if(!navigator.mediaDevices?.getUserMedia){
+          show("Fotocamera non supportata. Su iPhone apri dalla schermata Home.", "err");
+          scanning=false;return;
         }
 
         codeReader = new ZXing.BrowserMultiFormatReader();
-        const constraints = { video: { facingMode: { ideal: "environment" } }, audio: false };
+        const constraints={video:{facingMode:{ideal:"environment"}},audio:false};
         currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = currentStream;
-        await video.play();
+        video.srcObject=currentStream; await video.play();
 
         show("Inquadra il codice a barre della tessera…");
 
-        const loop = async () => {
+        const formats=[ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.QR_CODE];
+        codeReader.hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+
+        const loop=async()=>{
           if(!scanning) return;
           try{
-            const result = await codeReader.decodeOnceFromVideoElement(video);
-            if(result && result.text) handleCandidate(result.text.trim());
+            const result=await codeReader.decodeOnceFromVideoElement(video);
+            if(result?.text) handleCandidate(result.text.trim());
           }catch(e){
-            if(!(e instanceof ZXing.NotFoundException)){
-              console.error(e);
-            }
+            if(!(e instanceof ZXing.NotFoundException)) console.error(e);
           }finally{
-            if(scanning) requestAnimationFrame(loop);
+            if(scanning) setTimeout(loop,200);
           }
         };
-        requestAnimationFrame(loop);
+        loop();
 
       }catch(err){
         console.error(err);
-        if (err && (err.name === "NotAllowedError" || err.name === "SecurityError")){
-          show("Permesso fotocamera negato. Vai in Impostazioni → Safari → Fotocamera e consenti. Apri dalla schermata Home.", "err");
-        } else {
-          show("Impossibile accedere alla fotocamera. Chiudi e riapri l’app dalla schermata Home.", "err");
-        }
-        scanning = false;
+        show("Errore accesso fotocamera: consenti l’uso in Safari o apri dalla Home.", "err");
+        scanning=false;
       }
     }
 
     function stopScan(){
-      scanning = false;
-      if(codeReader){ try{ codeReader.reset(); }catch{} }
-      if(currentStream){
-        for(const t of currentStream.getTracks()) t.stop();
-        currentStream = null;
-      }
+      scanning=false;
+      if(codeReader){try{codeReader.reset();}catch{}}
+      if(currentStream){for(const t of currentStream.getTracks())t.stop();currentStream=null;}
       show("Scanner fermo. Puoi riavviare o inserire il CF manualmente.");
     }
 
     function handleCandidate(text){
-      const m = text.toUpperCase().match(/[A-Z0-9]{16}/);
-      const cfCandidate = m ? m[0] : text;
+      const m=text.toUpperCase().match(/[A-Z0-9]{16}/);
+      const cfCandidate=m?m[0]:text;
       try{
-        const info = parseCF(cfCandidate);
+        const info=parseCF(cfCandidate);
         show(
-          `CF: <b>${info.cf}</b><br>` +
-          `Data di nascita: <b>${info.birthISO}</b><br>` +
-          `Sesso: <b>${info.gender}</b><br>` +
+          `CF: <b>${info.cf}</b><br>`+
+          `Data di nascita: <b>${info.birthISO}</b><br>`+
+          `Sesso: <b>${info.gender}</b><br>`+
           `Età oggi: <b>${info.age}</b> anni`,
           "ok"
         );
@@ -157,19 +132,19 @@
       }
     }
 
-    btnStart.onclick = startScan;
-    btnStop.onclick  = stopScan;
-    btnParse.onclick = () => {
+    btnStart.onclick=startScan;
+    btnStop.onclick=stopScan;
+    btnParse.onclick=()=>{
       try{
-        const info = parseCF(manual.value);
+        const info=parseCF(manual.value);
         show(
-          `CF: <b>${info.cf}</b><br>` +
-          `Data di nascita: <b>${info.birthISO}</b><br>` +
-          `Sesso: <b>${info.gender}</b><br>` +
+          `CF: <b>${info.cf}</b><br>`+
+          `Data di nascita: <b>${info.birthISO}</b><br>`+
+          `Sesso: <b>${info.gender}</b><br>`+
           `Età oggi: <b>${info.age}</b> anni`,
           "ok"
         );
-      }catch(e){ show(e.message, "err"); }
+      }catch(e){show(e.message,"err");}
     };
   </script>
 </body>
