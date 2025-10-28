@@ -80,18 +80,24 @@
         const constraints={video:{facingMode:{ideal:"environment"}},audio:false};
         currentStream=await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject=currentStream;await video.play();
-        show("Inquadra il codice a barre della tessera…");
+
+        show("Inquadra il codice a barre della tessera sanitaria…");
+
         const formats=[ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.QR_CODE];
         codeReader.hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,formats);
-        const loop=async()=>{if(!scanning)return;
+
+        // Lettura continua
+        const loop=async()=>{
+          if(!scanning)return;
           try{
-            const result=await codeReader.decodeOnceFromVideoElement(video);
+            const result=await codeReader.decodeFromVideoElement(video);
             if(result?.text) handleCandidate(result.text.trim());
-          }catch(e){if(!(e instanceof ZXing.NotFoundException)) console.error(e);}
-          finally{if(scanning)setTimeout(loop,200);}
+          }catch(e){}
+          requestAnimationFrame(loop);
         };
         loop();
-      }catch(err){console.error(err);
+      }catch(err){
+        console.error(err);
         show("Errore accesso fotocamera: consenti l’uso in Safari o apri dalla Home.","err");
         scanning=false;
       }
