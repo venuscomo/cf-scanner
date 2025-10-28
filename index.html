@@ -72,10 +72,11 @@
       try{
         if(scanning) return;
         scanning=true;
-        if(!navigator.mediaDevices?.getUserMedia){
-          show("Fotocamera non supportata. Apri l’app dalla Home su iPhone.","err");
-          scanning=false;return;
-        }
+
+        // 🔹 Richiesta esplicita del permesso fotocamera
+        const permission = await navigator.mediaDevices.getUserMedia({ video: true });
+        if(!permission) throw new Error("Permesso negato o fotocamera non disponibile.");
+
         codeReader=new ZXing.BrowserMultiFormatReader();
         const constraints={video:{facingMode:{ideal:"environment"}},audio:false};
         currentStream=await navigator.mediaDevices.getUserMedia(constraints);
